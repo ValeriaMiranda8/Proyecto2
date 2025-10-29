@@ -6,7 +6,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.Animatable
-//import androidx.compose.animation.Animatable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -289,41 +288,6 @@ fun BottomMenu(username: String?,navController: NavHostController) {
         }
     }
 }
-//@Composable
-//fun SearchScreen() {
-//    val context = LocalContext.current
-//    val animals = remember { loadAnimalsFromJson(context) }
-//    var query by remember { mutableStateOf("") }
-//
-//    Column(modifier = Modifier.padding(16.dp)) {
-//        OutlinedTextField(
-//            value = query,
-//            onValueChange = { query = it },
-//            label = { Text("Buscar animal...") },
-//            modifier = Modifier.fillMaxWidth()
-//        )
-//
-//        Spacer(Modifier.height(12.dp))
-//
-//        val filtered = animals.filter {
-//            it.name.contains(query, ignoreCase = true)
-//        }
-//
-//        if (filtered.isEmpty()) {
-//            Text("No se encontraron resultados.", color = Color.Gray)
-//        } else {
-//            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-//                filtered.forEach { animal ->
-//                    Text(
-//                        text = animal.name,
-//                        fontSize = 18.sp,
-//                        modifier = Modifier.padding(vertical = 8.dp)
-//                    )
-//                }
-//            }
-//        }
-//    }
-//}
 
 @Composable
 fun ProfileScreen(username: String?, onLogin: (String) -> Unit) {
