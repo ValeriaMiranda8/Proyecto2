@@ -2,6 +2,7 @@ package com.example.proyecto
 
 import android.content.Context
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -36,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Alignment.Horizontal
@@ -61,12 +63,60 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.Query
+import androidx.room.Database
+import androidx.room.RoomDatabase
+import androidx.room.Room
+import kotlinx.coroutines.launch
 
+@Entity(tableName = "users")
+data class User(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val username: String,
+    val password: String
+)
+@Dao
+interface UserDao {
 
+    @Insert
+    suspend fun insertUser(user: User)
+
+    @Query("SELECT * FROM users WHERE username = :username AND password = :password LIMIT 1")
+    suspend fun login(username: String, password: String): User?
+
+    @Query("SELECT * FROM users WHERE username = :username LIMIT 1")
+    suspend fun findUser(username: String): User?
+}
+@Database(entities = [User::class], version = 1)
+abstract class AppDatabase : RoomDatabase() {
+    abstract fun userDao(): UserDao
+}
+object DatabaseProvider {
+    private var db: AppDatabase? = null
+
+    fun getDatabase(context: Context): AppDatabase {
+        if (db == null) {
+            db = Room.databaseBuilder(
+                context,
+                AppDatabase::class.java,
+                "animal_app_db"
+            ).build()
+        }
+        return db!!
+    }
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        //Borra la base para pruebas
+        deleteDatabase("animal_app_db")
+
+
         enableEdgeToEdge()
         setContent {
             MainScreen()
@@ -91,7 +141,13 @@ fun MainScreen() {
                 composable("inicio") { CenterSection() }
 //                composable("buscar") { SearchScreen() }
                 composable("perfil") { ProfileScreen(username = username,
-                    onLogin = { newUser -> username = newUser })
+                    onLogin = { newUser -> username = newUser }, navController = navController)
+                }
+                composable("registro") {
+                    RegistroScreen(
+                        onRegister = { username = it },
+                        navController = navController
+                    )
                 }
             }
         }
@@ -320,8 +376,12 @@ fun BottomMenu(username: String?,navController: NavHostController) {
 }
 
 @Composable
-fun ProfileScreen(username: String?, onLogin: (String) -> Unit) {
+fun ProfileScreen(username: String?, onLogin: (String) -> Unit, navController: NavHostController) {
     var inputName by rememberSaveable { mutableStateOf("") }
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    var password by rememberSaveable { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf("") }
 
     if (username == null || username == "") {
         Column(
@@ -339,16 +399,52 @@ fun ProfileScreen(username: String?, onLogin: (String) -> Unit) {
                 label = { Text("Usuario") },
                 singleLine = true
             )
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Contraseña") }
+            )
             Spacer(modifier = Modifier.height(16.dp))
-            Button(
-                colors = ButtonDefaults.buttonColors(containerColor = Color(red = 49,72,122)),
-                onClick = {
-                    if (inputName.isNotBlank()) {
-                        onLogin(inputName.trim())
+            Row {
+                Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(red = 49, 72, 122)),
+                    onClick = {
+                        if (inputName.isNotBlank() && password.isNotBlank()) {
+                            coroutineScope.launch {
+                                val dao = DatabaseProvider.getDatabase(context).userDao()
+                                val user = dao.login(inputName.trim(), password.trim())
+
+                                if (user != null) {
+                                    onLogin(user.username)
+                                    Toast.makeText(
+                                        context,
+                                        "Welcome",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+
+                                } else {
+                                    Toast.makeText(
+                                        context,
+                                        "Usuario o contraseña incorrectos",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+
+                                }
+                            }
+
+                        }
                     }
+                ) {
+                    Text("Entrar")
                 }
-            ) {
-                Text("Entrar")
+                Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(red = 49, 72, 122)),
+                    onClick = {
+                    navController.navigate("registro")
+                }
+                ){
+                    Text("Registrar")
+                }
             }
         }
     } else {
@@ -362,6 +458,7 @@ fun ProfileScreen(username: String?, onLogin: (String) -> Unit) {
         ) {
             Text("Hola, $username ", fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(16.dp))
+
             Button(colors = ButtonDefaults.buttonColors(containerColor = Color(red = 49,72,122)),
                 onClick = { onLogin("") }) {
                 Text("Cerrar sesión")
@@ -370,6 +467,79 @@ fun ProfileScreen(username: String?, onLogin: (String) -> Unit) {
     }
 }
 
+@Composable
+fun RegistroScreen(
+    onRegister: (String) -> Unit,
+    navController: NavHostController
+
+) {
+    var newUser by rememberSaveable { mutableStateOf("") }
+    var newPassword by rememberSaveable { mutableStateOf("") }
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    var errorMessage by remember { mutableStateOf("") }
+
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+
+        Text("Crear usuario", fontSize = 26.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(20.dp))
+
+        OutlinedTextField(
+            value = newUser,
+            onValueChange = { newUser = it },
+            label = { Text("Nombre de usuario") },
+            singleLine = true
+        )
+        OutlinedTextField(
+            value = newPassword,
+            onValueChange = { newPassword = it },
+            label = { Text("Contraseña") },
+            singleLine = true
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        Button(
+            onClick = {
+                if (newUser.isNotBlank() && newPassword.isNotBlank()) {
+                    val user = User(username = newUser.trim(), password = newPassword.trim())
+
+                    coroutineScope.launch {
+                        val dao = DatabaseProvider.getDatabase(context).userDao()
+
+                        // Evitar registrar usuarios duplicados
+                        val exists = dao.findUser(newUser.trim())
+                        if (exists == null) {
+                            dao.insertUser(user)
+                            onRegister(newUser.trim())
+                            Toast.makeText(
+                                context,
+                                "Usuario registrado",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            navController.popBackStack()
+                        } else {
+                            Toast.makeText(
+                                context,
+                                "El usuario ya existe",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                }
+            }
+        ) {
+            Text("Registrar")
+        }
+    }
+}
 
 
 @Preview
