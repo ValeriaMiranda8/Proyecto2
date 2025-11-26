@@ -56,6 +56,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigation.NavController
 import com.example.proyecto.ui.theme.ProyectoTheme
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -72,6 +73,7 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.Room
 import kotlinx.coroutines.launch
+import java.io.File
 
 @Entity(tableName = "users")
 data class User(
@@ -114,7 +116,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         //Borra la base para pruebas
-        deleteDatabase("animal_app_db")
+        //deleteDatabase("animal_app_db")
 
 
         enableEdgeToEdge()
@@ -129,6 +131,12 @@ class MainActivity : ComponentActivity() {
 fun MainScreen() {
     val navController = rememberNavController()
     var username by rememberSaveable { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+
+    // Prepara carpetas y crea el JSON si no existe
+    LaunchedEffect(Unit) {
+        prepareAnimalStorage(context)
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopSection(modifier = Modifier.height(100.dp),username)
@@ -138,7 +146,7 @@ fun MainScreen() {
                 navController = navController,
                 startDestination = "inicio"
             ) {
-                composable("inicio") { CenterSection() }
+                composable("inicio") { CenterSection(username = username, navController = navController) }
 //                composable("buscar") { SearchScreen() }
                 composable("perfil") { ProfileScreen(username = username,
                     onLogin = { newUser -> username = newUser }, navController = navController)
@@ -146,6 +154,12 @@ fun MainScreen() {
                 composable("registro") {
                     RegistroScreen(
                         onRegister = { username = it },
+                        navController = navController
+                    )
+                }
+                composable("subir") {
+                    UploadAnimalScreen(
+                        username = username,
                         navController = navController
                     )
                 }
@@ -190,7 +204,9 @@ fun TopSection(modifier: Modifier = Modifier, username: String?) {
 }
 
 @Composable
-fun CenterSection(modifier: Modifier = Modifier) {
+fun CenterSection(modifier: Modifier = Modifier,
+                  username: String?,
+                  navController: NavHostController) {
     //val adoptaImg: Int = R.drawable.adopta
     val adoptaList = listOf<Int>(R.drawable.adopta, R.drawable.adopta2)
     // Lista de animales (simulada)
@@ -206,8 +222,9 @@ fun CenterSection(modifier: Modifier = Modifier) {
             context = context,
             animal = selectedAnimal!!,
             onBack = { selectedAnimal = null },
-            onAdopt = { /* Acción de adoptar */ }
-        )
+            username = username,
+            navController = navController)
+
     } else {
         // Si no hay selección → mostrar galería scrollable
 
@@ -274,7 +291,7 @@ fun CenterSection(modifier: Modifier = Modifier) {
 
 // Vista detallada con zoom, descripción y botones
 @Composable
-fun AnimalDetail(animal: Animal, onBack: () -> Unit, onAdopt: () -> Unit, context: Context) {
+fun AnimalDetail(animal: Animal, onBack: () -> Unit, context: Context, username: String?, navController: NavHostController) {
     val scale = remember { Animatable(1f) }
     val imageRes = getDrawableId(context, animal.image)
     LaunchedEffect(Unit) {
@@ -320,14 +337,38 @@ fun AnimalDetail(animal: Animal, onBack: () -> Unit, onAdopt: () -> Unit, contex
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Button(onClick = onAdopt, colors = ButtonDefaults.buttonColors(containerColor = Color(red = 49,72,122))) {
-                Text("Adoptar")
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+
+            // Si NO ha iniciado sesión → mostrar Adoptar y enviar al login
+            if (username == null || username == "") {
+
+                Button(
+                    onClick = {
+                        Toast.makeText(context, "Debes iniciar sesión", Toast.LENGTH_SHORT).show()
+                        navController.navigate("perfil")
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(red = 49, 72, 122))
+                ) {
+                    Text("Adoptar")
+                }
+
+            } else {
+                // Si YA inició sesión → mostrar EN ADOPCIÓN
+                Button(
+                    onClick = {
+                        Toast.makeText(context, "Solicitud de adopción enviada", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(red = 49, 122, 72))
+                ) {
+                    Text("Adoptar")
+                }
             }
-            Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Color.LightGray)) {
-                Text("Regresar", color=Color(red = 49,72,122))
+
+            Button(
+                onClick = onBack,
+                colors = ButtonDefaults.buttonColors(containerColor = Color.LightGray)
+            ) {
+                Text("Regresar", color = Color(red = 49, 72, 122))
             }
         }
     }
@@ -340,14 +381,29 @@ data class Animal(
     val name: String,
     val description: String,
     val image: String
+
+
 )
 
 fun loadAnimalsFromJson(context: Context): List<Animal> {
-    val inputStream = context.resources.openRawResource(R.raw.animals)
-    val json = inputStream.bufferedReader().use { it.readText() }
-    val type = object : TypeToken<List<Animal>>() {}.type
-    return Gson().fromJson(json, type)
+    val rawList: List<Animal> = run {
+        val inputStream = context.resources.openRawResource(R.raw.animals)
+        val json = inputStream.bufferedReader().use { it.readText() }
+        Gson().fromJson(json, object : TypeToken<List<Animal>>() {}.type)
+    }
+
+    val internalFile = File(context.filesDir, "animales.json")
+    val userList: List<Animal> =
+        if (internalFile.exists()) {
+            val json = internalFile.readText()
+            Gson().fromJson(json, object : TypeToken<List<Animal>>() {}.type)
+        } else {
+            emptyList()
+        }
+
+    return rawList + userList
 }
+
 fun getDrawableId(context: Context, name: String): Int {
     return context.resources.getIdentifier(name, "drawable", context.packageName)
 }
@@ -364,7 +420,7 @@ fun BottomMenu(username: String?,navController: NavHostController) {
             Text("Inicio", color = Color(red = 49,72,122), fontSize = 14.sp)
         }
         if (username != null && username != ""){
-            TextButton(onClick = { navController.navigate("inicio") }) {
+            TextButton(onClick = { navController.navigate("subir") }) {
                 Text("Subir", color = Color(red = 49,72,122), fontSize = 14.sp)
             }
         }
@@ -525,6 +581,7 @@ fun RegistroScreen(
                                 Toast.LENGTH_SHORT
                             ).show()
                             navController.popBackStack()
+
                         } else {
                             Toast.makeText(
                                 context,
@@ -541,6 +598,115 @@ fun RegistroScreen(
     }
 }
 
+@Composable
+fun UploadAnimalScreen(username: String?, navController: NavHostController) {
+    val context = LocalContext.current
+
+    var name by rememberSaveable { mutableStateOf("") }
+    var description by rememberSaveable { mutableStateOf("") }
+    var imageName by rememberSaveable { mutableStateOf("") } // nombre del drawable
+    val coroutineScope = rememberCoroutineScope()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text("Subir nuevo animal", fontSize = 26.sp, fontWeight = FontWeight.Bold)
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it },
+            label = { Text("Nombre del animal") },
+            singleLine = true
+        )
+
+        OutlinedTextField(
+            value = description,
+            onValueChange = { description = it },
+            label = { Text("Descripción") }
+        )
+
+        OutlinedTextField(
+            value = imageName,
+            onValueChange = { imageName = it },
+            label = { Text("Nombre de la imagen en drawable (sin .png)") },
+            singleLine = true
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        Button(
+            colors = ButtonDefaults.buttonColors(containerColor = Color(red = 49,72,122)),
+            onClick = {
+                if (name.isNotBlank() && description.isNotBlank() && imageName.isNotBlank()) {
+                    val newAnimal = Animal(
+                        name = name,
+                        description = description,
+                        image = imageName
+                    )
+
+                    coroutineScope.launch {
+                        saveAnimalToInternalJson(context, newAnimal)
+                        Toast.makeText(context, "Animal subido", Toast.LENGTH_SHORT).show()
+                        navController.popBackStack()
+                    }
+                } else {
+                    Toast.makeText(context, "Completa todos los campos", Toast.LENGTH_SHORT).show()
+                }
+            }
+        ) {
+            Text("Guardar animal")
+        }
+    }
+}
+fun saveAnimalToInternalJson(context: Context, newAnimal: Animal) {
+    val file = File(context.filesDir, "animales.json")
+
+    // Si NO existe → crear lista vacía
+    val animals: MutableList<Animal> = if (file.exists()) {
+        val json = file.readText()
+        Gson().fromJson(json, object : TypeToken<MutableList<Animal>>() {}.type)
+    } else {
+        mutableListOf()
+    }
+
+    animals.add(newAnimal)
+
+    // Guardar nuevamente el JSON
+    file.writeText(Gson().toJson(animals))
+}
+
+fun prepareAnimalStorage(context: Context): File {
+    val filesDir = context.filesDir
+
+    // Carpeta donde se guardarán las imágenes de los animales
+    val imagenesDir = File(filesDir, "imagenes")
+    if (!imagenesDir.exists()) {
+        imagenesDir.mkdirs()
+    }
+
+    // Archivo JSON donde se guardará la lista de animales
+    val jsonFile = File(filesDir, "animales.json")
+
+    // ----------------------------------------------------------
+    // 🔥 DEBUG: BORRAR EL ARCHIVO SI EXISTE (comentar después)
+    if (jsonFile.exists()) {
+        jsonFile.delete()
+        // Log.d("ANIMALES", "Archivo animales.json borrado por DEBUG")
+    }
+    // ----------------------------------------------------------
+
+    if (!jsonFile.exists()) {
+        jsonFile.writeText("[]")   // JSON vacío
+    }
+
+    return jsonFile
+}
 
 @Preview
 @Composable
